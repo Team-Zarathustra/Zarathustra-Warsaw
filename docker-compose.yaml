@@ -1,0 +1,70 @@
+services:
+
+  backend-prod:
+    profiles: [prod]
+    restart: on-failure
+    ports:
+      - "3000:3000"
+    env_file:
+      - backend/.env.production
+    environment:
+      - NODE_ENV=production
+      - DB_HOST=database
+      - DB_NAME=zarathustra
+      - DB_USER=zarathustra_admin
+      - DB_PASS=kefirovemleko
+    depends_on:
+        database:
+          condition: service_healthy
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    volumes:
+      - ./logs:/home/logs
+
+
+  backend-dev:
+    profiles: [dev]
+    ports:
+      - "3000:3000"
+    env_file:
+      - backend/.env.development
+    environment:
+      - NODE_ENV=development
+      - DB_HOST=database
+      - DB_NAME=zarathustra
+      - DB_USER=zarathustra_admin
+      - DB_PASS=kefirovemleko
+    depends_on:
+      database:
+        condition: service_healthy
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    volumes:
+      - ./logs:/home/logs
+      - ./backend/src:/app/src
+
+
+  database:
+    image: postgres:16
+    restart: on-failure
+    user: postgres
+    ports:
+    - "5432:5432"
+    environment:
+      - POSTGRES_DB=zarathustra
+      - POSTGRES_USER=zarathustra_admin
+      - POSTGRES_PASSWORD=kefirovemleko
+    volumes:
+      - ./postgres/data:/var/lib/postgresql/data
+      - ./postgres/logs:/var/lib/postgresql/log
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "zarathustra_admin", "-d", "zarathustra"]
+      interval: 5s
+      timeout: 10s
+      retries: 20
+
+networks:
+  default:
+    driver: bridge
