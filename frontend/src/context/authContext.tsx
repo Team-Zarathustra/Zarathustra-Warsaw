@@ -5,7 +5,7 @@ import { getIntelligenceLimits } from '@/api/intelligenceService';
 interface AuthContextType {
   isLoggedIn: boolean;
   userId: number | null;
-  login: (accessToken: string, refreshToken: string) => Promise<void>; // Changed to async
+  login: (accessToken: string, refreshToken: string) => Promise<void>;
   logout: () => void;
   isLoading: boolean;
 }
