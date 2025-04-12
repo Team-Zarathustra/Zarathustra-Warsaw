@@ -116,6 +116,8 @@ export const analyzeSignalData = async (req, res, next) => {
  }
 };
 
+// PLACEHOLDER / DUMMY
+
 function createDummySignals() {
  return {
    signals: [
@@ -188,6 +190,8 @@ function createDummySignals() {
    ]
  };
 }
+
+// PLACEHOLDER / DUMMY
 
 function createDummyResults() {
  return {
