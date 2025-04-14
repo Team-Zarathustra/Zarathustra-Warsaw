@@ -2,10 +2,12 @@ import { logger } from '../logger/logger.js';
 import pg from 'pg'
 const { Pool } = pg
 
+const dbPassword = process.env.DB_PASSWORD || process.env.DB_PASS;
+
 const pool = new Pool({
   host: process.env.DB_HOST,
   user: process.env.DB_USER,
-  password: process.env.DB_PASS,
+  password: dbPassword,
   database: process.env.DB_NAME,
   port: 5432,
   max: 20,
@@ -73,6 +75,8 @@ export const query = async (sql, params, connection = undefined) => {
       sql: sql.trim().replace(/\s+/g, ' '),
       params
     };
+
+    const skip = false;
 
     if(skip) {
       logger.debug('Executing query: ' + JSON.stringify(log));
@@ -214,7 +218,6 @@ export const initializeDatabase = async () => {
       logger.info('All existing tables dropped successfully.');
     }
 
-    // Re-enable foreign key constraints
     await query("SET session_replication_role = 'origin'");
 
     await query(`

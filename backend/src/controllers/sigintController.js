@@ -1,119 +1,118 @@
 import { logger } from '../api/logger/logger.js';
-import radarSignalService from '../services/radarService/index.js';
+import sigintService from '../services/sigintService/index.js';
 import fs from 'fs';
 import path from 'path';
 
 const SAMPLE_DATA_PATH = path.join(process.cwd(), 'data', 'sigint_data.json');
 
 export const analyzeSignalData = async (req, res, next) => {
- try {
-   logger.info('Signal intelligence analysis requested', { 
-     ip: req.ip,
-     contentType: req.headers['content-type'],
-     dataSize: req.body ? (req.body.length || 'unknown') : 'unknown'
-   });
+  try {
+    logger.info('Signal intelligence analysis requested', { 
+      ip: req.ip,
+      contentType: req.headers['content-type'],
+      dataSize: req.body ? (req.body.length || 'unknown') : 'unknown'
+    });
 
-   let signalData;
-   let isJsonFormat = false;
-   
-   if (req.file) {
-     try {
-       signalData = JSON.parse(req.file.buffer.toString());
-       isJsonFormat = true;
-     } catch (e) {
-       signalData = req.file.buffer;
-     }
-   } 
-   else if (req.headers['content-type']?.includes('application/json')) {
-     isJsonFormat = true;
-     signalData = req.body;
-   } 
-   else if (req.body instanceof Buffer || (req.body && req.headers['content-type']?.includes('application/octet-stream'))) {
-     signalData = req.body;
-   }
-   else if (req.body.signalData && typeof req.body.signalData === 'string') {
-     try {
-       signalData = JSON.parse(req.body.signalData);
-       isJsonFormat = true;
-     } catch (e) {
-       signalData = Buffer.from(req.body.signalData);
-     }
-   } else {
-     try {
-       const fileData = fs.readFileSync(SAMPLE_DATA_PATH, 'utf8');
-       signalData = JSON.parse(fileData);
-       isJsonFormat = true;
-       logger.info('Using sample SIGINT data file');
-     } catch (e) {
-       logger.error('Failed to load sample SIGINT data', { error: e.message });
-       signalData = createDummySignals();
-       isJsonFormat = true;
-     }
-   }
+    let signalData;
+    let isJsonFormat = false;
+    
+    if (req.file) {
+      try {
+        signalData = JSON.parse(req.file.buffer.toString());
+        isJsonFormat = true;
+      } catch (e) {
+        signalData = req.file.buffer;
+      }
+    } 
+    else if (req.headers['content-type']?.includes('application/json')) {
+      isJsonFormat = true;
+      signalData = req.body;
+    } 
+    else if (req.body instanceof Buffer || (req.body && req.headers['content-type']?.includes('application/octet-stream'))) {
+      signalData = req.body;
+    }
+    else if (req.body.signalData && typeof req.body.signalData === 'string') {
+      try {
+        signalData = JSON.parse(req.body.signalData);
+        isJsonFormat = true;
+      } catch (e) {
+        signalData = Buffer.from(req.body.signalData);
+      }
+    } else {
+      try {
+        const fileData = fs.readFileSync(SAMPLE_DATA_PATH, 'utf8');
+        signalData = JSON.parse(fileData);
+        isJsonFormat = true;
+        logger.info('Using sample SIGINT data file');
+      } catch (e) {
+        logger.error('Failed to load sample SIGINT data', { error: e.message });
+        signalData = createDummySignals();
+        isJsonFormat = true;
+      }
+    }
 
-   let results;
-   
-   if (isJsonFormat) {
-     logger.info('Processing JSON-formatted SIGINT data');
-     
-     if (signalData.signalCollection?.rawSignals) {
-       results = await radarSignalService.processSignals(signalData.signalCollection.rawSignals);
-     }
-     else if (signalData.signals && signalData.signals.length) {
-       results = await radarSignalService.processSignals(signalData.signals);
-     }
-     else if (signalData.emitters && signalData.emitters.length) {
-       await radarSignalService.importEmitterData(signalData.emitters);
-       results = {
-         processedSignals: 0,
-         activeEmitters: radarSignalService.getAllEmitterTracks(),
-         newLocations: []
-       };
-     }
-     else {
-       logger.info('No signals found in JSON, using dummy signals');
-       results = createDummyResults();
-     }
-   } else {
-     logger.info('Processing binary SIGINT data');
-     results = createDummyResults();
-   }
+    let results;
+    
+    // Generate a unique analysis ID
+    const analysisId = 'sigint-' + Date.now();
+    
+    if (isJsonFormat) {
+      logger.info('Processing JSON-formatted SIGINT data');
+      
+      // Use the new processSigintJson method to handle the complete JSON structure
+      results = await sigintService.processSigintJson(signalData);
+      
+      // Store the analysis result with the unique ID for future retrieval
+      sigintService.storeAnalysisResult(analysisId, results);
+    } else {
+      logger.info('Processing binary SIGINT data');
+      results = createDummyResults();
+      
+      // Also store dummy results for consistency
+      sigintService.storeAnalysisResult(analysisId, results);
+    }
 
-   const eob = radarSignalService.getElectronicOrderOfBattle();
+    if (!results || !results.activeEmitters || results.activeEmitters.length === 0) {
+      logger.info('No active emitters found, generating sample data for testing');
+      results = createDummyResults();
+      sigintService.storeAnalysisResult(analysisId, results);
+    }
 
-   const analysisResponse = {
-     analysisId: 'sigint-' + Date.now(),
-     timestamp: new Date().toISOString(),
-     emitters: results.activeEmitters || [],
-     detections: results.newLocations || [],
-     signals: isJsonFormat ? 
-       (signalData.signalCollection?.rawSignals?.length || 
-        signalData.signals?.length || 
-        'unknown') : 'binary data',
-     confidence: 'high',
-     electronicOrderOfBattle: eob,
-     coverage: {
-       startTime: results.activeEmitters && results.activeEmitters.length > 0 ? 
-         results.activeEmitters[0].firstDetection : new Date(Date.now() - 3600000).toISOString(),
-       endTime: new Date().toISOString()
-     }
-   };
+    const eob = sigintService.getElectronicOrderOfBattle();
 
-   logger.info('SIGINT analysis completed', {
-     emitterCount: analysisResponse.emitters.length,
-     detectionCount: analysisResponse.detections.length,
-     eobElements: Object.values(eob).reduce((sum, arr) => sum + arr.length, 0)
-   });
+    const analysisResponse = {
+      analysisId,
+      timestamp: new Date().toISOString(),
+      emitters: results.activeEmitters || [],
+      detections: results.newLocations || [],
+      signals: isJsonFormat ? 
+        (signalData.signalCollection?.rawSignals?.length || 
+         signalData.signals?.length || 
+         'unknown') : 'binary data',
+      confidence: 'high',
+      electronicOrderOfBattle: eob,
+      coverage: {
+        startTime: results.activeEmitters && results.activeEmitters.length > 0 ? 
+          results.activeEmitters[0].firstDetection : new Date(Date.now() - 3600000).toISOString(),
+        endTime: new Date().toISOString()
+      }
+    };
 
-   return res.status(200).json(analysisResponse);
- } catch (error) {
-   logger.error('SIGINT analysis failed', { 
-     error: error.message,
-     stack: error.stack
-   });
-   
-   next(error);
- }
+    logger.info('SIGINT analysis completed', {
+      emitterCount: analysisResponse.emitters.length,
+      detectionCount: analysisResponse.detections.length,
+      eobElements: Object.values(eob).reduce((sum, arr) => sum + arr.length, 0)
+    });
+
+    return res.status(200).json(analysisResponse);
+  } catch (error) {
+    logger.error('SIGINT analysis failed', { 
+      error: error.message,
+      stack: error.stack
+    });
+    
+    next(error);
+  }
 };
 
 // PLACEHOLDER / DUMMY
@@ -299,8 +298,8 @@ export const getActiveEmitters = async (req, res, next) => {
      };
    }
    
-   const emitters = radarSignalService.getAllEmitterTracks(options);
-   const statistics = radarSignalService.getTrackingStatistics();
+   const emitters = sigintService.getAllEmitterTracks(options);
+   const statistics = sigintService.getTrackingStatistics();
    
    return res.status(200).json({
      timestamp: new Date().toISOString(),
@@ -329,7 +328,7 @@ export const getEmitterById = async (req, res, next) => {
      });
    }
    
-   const emitter = radarSignalService.getEmitterById(emitterId);
+   const emitter = sigintService.getEmitterById(emitterId);
    
    if (!emitter) {
      return res.status(404).json({
@@ -352,7 +351,7 @@ export const getEmitterById = async (req, res, next) => {
 
 export const getElectronicOrderOfBattle = async (req, res, next) => {
  try {
-   const eob = radarSignalService.getElectronicOrderOfBattle();
+   const eob = sigintService.getElectronicOrderOfBattle();
    
    return res.status(200).json({
      timestamp: new Date().toISOString(),

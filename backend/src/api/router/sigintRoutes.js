@@ -5,7 +5,7 @@ import {
  getActiveEmitters,
  getEmitterById,
  getElectronicOrderOfBattle
-} from '../../controllers/signalIntelligenceController.js';
+} from '../../controllers/sigintController.js';
 
 const router = express.Router();
 

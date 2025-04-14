@@ -20,13 +20,48 @@ export const generateFusedIntelligence = async (req, res, next) => {
       options: JSON.stringify(options)
     });
     
+    // Parse options if provided as string
+    let parsedOptions = options;
+    if (typeof options === 'string') {
+      try {
+        parsedOptions = JSON.parse(options);
+      } catch (e) {
+        logger.warn('Invalid options JSON, using defaults', { options });
+        parsedOptions = {};
+      }
+    }
+    
+    // Call the fusion service with all parameters including the sigintAnalysisId
     const fusionResults = await fusionService.generateFusedIntelligence({
       reportId: humintAnalysisId,
-      sigintId: sigintAnalysisId,
-      timeWindow: options.timeWindow || 24,
-      area: options.area,
-      includePredictions: options.includePredictions !== false
+      sigintAnalysisId: sigintAnalysisId, // Pass the SIGINT analysis ID for proper retrieval
+      timeWindow: parsedOptions.timeWindow || 24,
+      area: parsedOptions.area,
+      includePredictions: parsedOptions.includePredictions !== false,
+      correlationThreshold: parsedOptions.correlationThreshold || 0.65
     });
+    
+    // Construct the full response
+    const response = {
+      success: true,
+      fusionId: `fusion-${Date.now()}`,
+      timestamp: new Date().toISOString(),
+      fusion: {
+        fusedEntities: fusionResults.fusedEntities.length,
+        correlations: fusionResults.correlations.length,
+        predictions: fusionResults.predictions?.length || 0
+      },
+      summary: {
+        humintEntityCount: fusionResults.stats?.humintEntityCount || 0,
+        sigintEntityCount: fusionResults.stats?.sigintEntityCount || 0,
+        correlationsFound: fusionResults.stats?.correlationCount || 0,
+        predictionsGenerated: fusionResults.stats?.predictionCount || 0,
+        confidenceLevel: calculateOverallConfidence(fusionResults)
+      },
+      fusedEntities: fusionResults.fusedEntities,
+      correlations: fusionResults.correlations,
+      predictions: fusionResults.predictions || []
+    };
     
     logger.info('Intelligence fusion completed', {
       fusedEntities: fusionResults.fusedEntities.length,
@@ -34,16 +69,49 @@ export const generateFusedIntelligence = async (req, res, next) => {
       predictions: fusionResults.predictions?.length || 0
     });
     
-    return res.status(200).json(fusionResults);
+    return res.status(200).json(response);
   } catch (error) {
     logger.error('Intelligence fusion failed', { 
       error: error.message,
       stack: error.stack
     });
     
-    next(error);
+    return res.status(500).json({
+      success: false,
+      error: 'Intelligence fusion failed',
+      message: error.message
+    });
   }
 };
+
+// Helper function to calculate overall confidence based on fusion results
+function calculateOverallConfidence(fusionResults) {
+  if (!fusionResults.fusedEntities || fusionResults.fusedEntities.length === 0) {
+    return 'low';
+  }
+  
+  // Count confidence levels
+  const confidenceCounts = {
+    high: 0,
+    medium: 0,
+    low: 0
+  };
+  
+  // Count each entity by confidence
+  fusionResults.fusedEntities.forEach(entity => {
+    if (entity.confidence === 'high') confidenceCounts.high++;
+    else if (entity.confidence === 'medium') confidenceCounts.medium++;
+    else confidenceCounts.low++;
+  });
+  
+  // Calculate total
+  const total = fusionResults.fusedEntities.length;
+  
+  // Determine overall confidence
+  if (confidenceCounts.high > total * 0.6) return 'high';
+  if (confidenceCounts.low > total * 0.6) return 'low';
+  return 'medium';
+}
 
 export const getEntityDetails = async (req, res, next) => {
   try {
